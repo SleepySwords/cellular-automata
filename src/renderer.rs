@@ -1,10 +1,17 @@
 use std::path::Path;
 
 use wgpu::{
-    Backends, BlendState, ColorTargetState, ColorWrites, CommandEncoderDescriptor, Device, DeviceDescriptor, Features, FragmentState, Instance, Limits, MemoryHints, MultisampleState, Operations, PipelineLayoutDescriptor, PowerPreference, PrimitiveState, PrimitiveTopology, Queue, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptions, Surface, SurfaceConfiguration, SurfaceError, TextureUsages, TextureViewDescriptor, VertexState
+    Backends, BlendState, ColorTargetState, ColorWrites, CommandEncoderDescriptor, Device,
+    DeviceDescriptor, Features, FragmentState, Instance, Limits, MemoryHints, MultisampleState,
+    Operations, PipelineLayoutDescriptor, PowerPreference, PrimitiveState, PrimitiveTopology,
+    Queue, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
+    RenderPipelineDescriptor, RequestAdapterOptions, Surface, SurfaceConfiguration, SurfaceError,
+    TextureUsages, TextureViewDescriptor, VertexState,
 };
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
+    event::{ElementState, KeyEvent, WindowEvent},
+    keyboard::{KeyCode, PhysicalKey},
     window::Window,
 };
 
@@ -17,6 +24,9 @@ pub struct Renderer<'a> {
 
     pub position: PhysicalPosition<f64>,
     render_pipeline: RenderPipeline,
+    render_pipeline_colour: RenderPipeline,
+
+    render_second: bool,
 
     window: &'a Window,
 }
@@ -81,6 +91,11 @@ impl Renderer<'_> {
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
+        let shader2 = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("shader2"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader2.wgsl").into()),
+        });
+
         let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("Pipeline layout"),
             bind_group_layouts: &[],
@@ -125,6 +140,44 @@ impl Renderer<'_> {
             cache: None,
         });
 
+        let render_pipeline_colour = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: None,
+            layout: Some(&render_pipeline_layout),
+            vertex: VertexState {
+                module: &shader2,
+                entry_point: "vs_main",
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(FragmentState {
+                module: &shader2,
+                entry_point: "fs_main",
+                compilation_options: Default::default(),
+                targets: &[Some(ColorTargetState {
+                    format: surface_format,
+                    blend: Some(BlendState::REPLACE),
+                    write_mask: ColorWrites::ALL,
+                })],
+            }),
+            primitive: PrimitiveState {
+                topology: PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        });
+
         return Renderer {
             surface,
             device,
@@ -133,6 +186,8 @@ impl Renderer<'_> {
             size,
             window,
             render_pipeline,
+            render_pipeline_colour,
+            render_second: false,
             position: PhysicalPosition::new(0.0, 0.0),
         };
     }
@@ -170,7 +225,11 @@ impl Renderer<'_> {
                 occlusion_query_set: None,
             });
 
-            render_pass.set_pipeline(&self.render_pipeline);
+            if !self.render_second {
+                render_pass.set_pipeline(&self.render_pipeline);
+            } else {
+                render_pass.set_pipeline(&self.render_pipeline_colour);
+            }
             render_pass.draw(0..3, 0..1);
         }
 
@@ -193,7 +252,27 @@ impl Renderer<'_> {
         return self.window;
     }
 
-    pub fn input(&mut self, position: PhysicalPosition<f64>) {
-        self.position = position;
+    pub fn input(&mut self, window_event: &WindowEvent) -> bool {
+        match window_event {
+            WindowEvent::CursorMoved { position, .. } => {
+                self.position = *position;
+                return true;
+            }
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        state: ElementState::Pressed,
+                        physical_key: PhysicalKey::Code(KeyCode::Space),
+                        ..
+                    },
+                ..
+            } => {
+                self.render_second = !self.render_second;
+                return true;
+            }
+            _ => {
+                return false;
+            }
+        }
     }
 }

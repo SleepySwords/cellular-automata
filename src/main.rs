@@ -25,36 +25,30 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut surface_configured = false;
 
     event_loop.run(|event, event_loop_window_target| match event {
-        winit::event::Event::WindowEvent {
-            event: WindowEvent::CloseRequested,
-            window_id,
-        } if window_id == renderer.window().id() => event_loop_window_target.exit(),
-        winit::event::Event::WindowEvent {
-            event: WindowEvent::Resized(new_size),
-            window_id,
-        } if window_id == renderer.window().id() => {
-            surface_configured = true;
-            renderer.resize(new_size)
-        }
-        winit::event::Event::WindowEvent {
-            event: WindowEvent::RedrawRequested,
-            window_id,
-        } if window_id == renderer.window().id() => {
-            match renderer.render() {
-                Ok(_) => {}
-                Err(SurfaceError::Lost) => renderer.resize(renderer.size),
-                _ => {
-                    return;
+        winit::event::Event::WindowEvent { event, window_id }
+            if window_id == renderer.window().id() =>
+        {
+            if !renderer.input(&event) {
+                match event {
+                    WindowEvent::CloseRequested => event_loop_window_target.exit(),
+                    WindowEvent::Resized(new_size) => {
+                        surface_configured = true;
+                        renderer.resize(new_size)
+                    }
+                    WindowEvent::RedrawRequested => match renderer.render() {
+                        Ok(_) => {}
+                        Err(SurfaceError::Lost) => renderer.resize(renderer.size),
+                        _ => {
+                            return;
+                        }
+                    },
+                    _ => {}
                 }
             }
         }
         Event::AboutToWait => {
             renderer.window().request_redraw();
         }
-        winit::event::Event::WindowEvent {
-            event: WindowEvent::CursorMoved { position, .. },
-            window_id,
-        } if window_id == renderer.window().id() => renderer.input(position),
         _ => {}
     })?;
 
