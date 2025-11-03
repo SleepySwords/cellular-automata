@@ -1,13 +1,19 @@
+pub mod camera;
+pub mod object;
 mod renderer;
+pub mod texture;
+pub mod vertex;
 
-use std::error::Error;
+use std::{error::Error, sync::Arc};
 
 use log::info;
 use renderer::Renderer;
 use wgpu::SurfaceError;
 use winit::{
-    event::{Event, WindowEvent},
+    application::ApplicationHandler,
+    event::{Event, KeyEvent, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
+    keyboard::{KeyCode, PhysicalKey},
     window::Window,
 };
 
@@ -17,40 +23,73 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     info!("ok");
 
-    let event_loop = EventLoop::new()?;
-    event_loop.set_control_flow(ControlFlow::Wait);
-    let window = Window::new(&event_loop).unwrap();
+    let event_loop = EventLoop::with_user_event().build()?;
+    // event_loop.set_control_flow(ControlFlow::Wait);
 
-    let mut renderer = Renderer::new(&window).await;
-    let mut surface_configured = false;
+    event_loop.run_app(&mut App::new());
 
-    event_loop.run(|event, event_loop_window_target| match event {
-        winit::event::Event::WindowEvent { event, window_id }
-            if window_id == renderer.window().id() =>
-        {
-            if !renderer.input(&event) {
-                match event {
-                    WindowEvent::CloseRequested => event_loop_window_target.exit(),
-                    WindowEvent::Resized(new_size) => {
-                        surface_configured = true;
-                        renderer.resize(new_size)
-                    }
-                    WindowEvent::RedrawRequested => match renderer.render() {
+    return Ok(());
+}
+
+struct App {
+    state: Option<Renderer>,
+}
+
+impl App {
+    fn new() -> App {
+        return App { state: None };
+    }
+}
+
+impl ApplicationHandler<App> for App {
+    fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        let window_attributes = Window::default_attributes();
+        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+
+        self.state = Some(pollster::block_on(Renderer::new(window)));
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        _window_id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
+        let state = match &mut self.state {
+            Some(canvas) => canvas,
+            None => return,
+        };
+
+        if !state.input(&event) {
+            match event {
+                WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            physical_key: PhysicalKey::Code(code),
+                            state: key_state,
+                            ..
+                        },
+                    ..
+                } => match (code, key_state.is_pressed()) {
+                    (KeyCode::Escape, true) => event_loop.exit(),
+                    _ => {}
+                },
+                WindowEvent::CloseRequested => event_loop.exit(),
+                WindowEvent::Resized(new_size) => state.resize(new_size),
+                WindowEvent::RedrawRequested => {
+                    state.update();
+                    match state.render() {
                         Ok(_) => {}
-                        Err(SurfaceError::Lost) => renderer.resize(renderer.size),
+                        Err(SurfaceError::Lost) => state.resize(state.size),
                         _ => {
                             return;
                         }
-                    },
-                    _ => {}
+                    }
                 }
+                _ => {}
             }
+        } else {
+            state.window().request_redraw();
         }
-        Event::AboutToWait => {
-            renderer.window().request_redraw();
-        }
-        _ => {}
-    })?;
-
-    return Ok(());
+    }
 }

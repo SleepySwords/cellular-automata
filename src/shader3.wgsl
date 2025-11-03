@@ -2,30 +2,12 @@ struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) vert_pos: vec3<f32>,
     @location(1) colour: vec3<f32>,
-    @location(2) tex_coords: vec2<f32>,
 };
 
 struct VertexInput {
     @location(0) vert_pos: vec3<f32>,
     @location(1) colour: vec3<f32>,
-    @location(2) tex_coords: vec2<f32>,
 }
-
-struct CameraUniform {
-    view_proj: mat4x4<f32>,
-};
-
-struct Camera2Uniform {
-    scale: f32,
-    x: f32,
-    y: f32
-}
-
-@group(1) @binding(0)
-var<uniform> camera: CameraUniform;
-
-@group(1) @binding(1)
-var<uniform> camera2: Camera2Uniform;
 
 @vertex
 fn vs_main(
@@ -33,8 +15,7 @@ fn vs_main(
     model: VertexInput,
 ) -> VertexOutput {
     var out: VertexOutput;
-    out.clip_position = /* camera.view_proj * */ vec4((model.vert_pos.xy + vec2(camera2.x, camera2.y)) * camera2.scale, model.vert_pos.z, 1.0);
-    out.tex_coords = model.tex_coords;
+    out.clip_position = vec4(model.vert_pos, 1.0);
     out.vert_pos = model.vert_pos.xyz;
     out.colour = model.colour;
     return out;
@@ -49,5 +30,5 @@ var s_diffuse: sampler;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return textureSample(t_diffuse, s_diffuse, in.tex_coords);
+    return vec4(in.colour, 0.0);
 }
