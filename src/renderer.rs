@@ -1,15 +1,7 @@
 use std::sync::Arc;
 
 use wgpu::{
-    util::{BufferInitDescriptor, DeviceExt},
-    wgc::device::queue,
-    Backends, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
-    BlendState, BufferUsages, ColorTargetState, ColorWrites, CommandEncoderDescriptor, Device,
-    DeviceDescriptor, ExperimentalFeatures, Features, FragmentState, Instance, Limits, MemoryHints,
-    MultisampleState, Operations, PipelineLayoutDescriptor, PowerPreference, PrimitiveState,
-    PrimitiveTopology, Queue, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
-    RenderPipelineDescriptor, RequestAdapterOptions, ShaderStages, Surface, SurfaceConfiguration,
-    SurfaceError, TextureUsages, TextureViewDescriptor, VertexState,
+    Backends, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BlendState, BufferUsages, ColorTargetState, ColorWrites, ComputePassDescriptor, ComputePipelineDescriptor, Device, DeviceDescriptor, ExperimentalFeatures, Extent3d, Features, FragmentState, Instance, Limits, MemoryHints, MultisampleState, Operations, Origin3d, PipelineLayoutDescriptor, PowerPreference, PrimitiveState, PrimitiveTopology, Queue, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptions, ShaderStages, Surface, SurfaceConfiguration, SurfaceError, TextureUsages, TextureViewDescriptor, TextureViewDimension, VertexState, util::{BufferInitDescriptor, DeviceExt}, wgt::CommandEncoderDescriptor
 };
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
@@ -19,7 +11,7 @@ use winit::{
 };
 
 use crate::{
-    camera::{Camera, Camera2Uniform, CameraController, CameraUniform},
+    camera::{Camera, CameraController},
     texture::Texture,
     vertex::Vertex,
 };
@@ -50,10 +42,9 @@ pub struct Renderer {
 
     is_surface_configured: bool,
     camera_controller: CameraController,
-    camera_uniform: CameraUniform,
     camera_uniform_buffer: wgpu::Buffer,
-    camera2_uniform_buffer: wgpu::Buffer,
-    camera2_uniform: Camera2Uniform,
+    compute_pipeline: wgpu::ComputePipeline,
+    compute_texture: Texture,
 }
 
 pub enum RenderState {
@@ -174,23 +165,18 @@ impl Renderer {
         };
 
         let camera = Camera {
-            // position the camera 1 unit up and 2 units back
-            // +z is out of the screen
-            eye: (0.0, 1.0, 2.0).into(),
-            // have it look at the origin
-            target: (0.0, 0.0, 0.0).into(),
-            // which way is "up"
-            up: cgmath::Vector3::unit_y(),
-            aspect: config.width as f32 / config.height as f32,
-            fovy: 45.0,
-            znear: 0.1,
-            zfar: 100.0,
+            scale: 1.0,
+            x: 0.0,
+            y: 0.0,
         };
 
-        let camera_controller = CameraController::new(0.2);
+        let camera_controller = CameraController::new(0.1);
 
         let diffuse_bytes = include_bytes!("Untitled.png");
         let diffuse_texture =
+            Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
+
+        let compute_texture =
             Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
 
         let texture_bind_group_layout =
@@ -199,7 +185,7 @@ impl Renderer {
                 entries: &[
                     BindGroupLayoutEntry {
                         binding: 0,
-                        visibility: ShaderStages::FRAGMENT,
+                        visibility: ShaderStages::FRAGMENT | ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Texture {
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
                             view_dimension: wgpu::TextureViewDimension::D2,
@@ -209,8 +195,18 @@ impl Renderer {
                     },
                     BindGroupLayoutEntry {
                         binding: 1,
-                        visibility: ShaderStages::FRAGMENT,
+                        visibility: ShaderStages::FRAGMENT | ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            view_dimension: TextureViewDimension::D2,
+                        },
                         count: None,
                     },
                 ],
@@ -228,70 +224,41 @@ impl Renderer {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
                 },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&compute_texture.view),
+                },
             ],
         });
 
-        let mut camera_uniform = CameraUniform::new();
-        camera_uniform.update_project(&camera);
-
-        let camera2_uniform = Camera2Uniform {
-            scale: 1.0,
-            x: 0.0,
-            y: 0.0,
-        };
-
         let camera_uniform_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: None,
-            contents: bytemuck::cast_slice(&[camera_uniform]),
-            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-        });
-
-        let camera2_uniform_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: None,
-            contents: bytemuck::cast_slice(&[camera2_uniform]),
+            contents: bytemuck::cast_slice(&[camera]),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         });
 
         let camera_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 label: None,
-                entries: &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                entries: &[BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                ],
+                    count: None,
+                }],
             });
 
         let camera_bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: None,
             layout: &camera_bind_group_layout,
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: camera_uniform_buffer.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: camera2_uniform_buffer.as_entire_binding(),
-                },
-            ],
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: camera_uniform_buffer.as_entire_binding(),
+            }],
         });
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -375,7 +342,7 @@ impl Renderer {
             });
 
         let render_pipeline_colour = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some("wow"),
+            label: Some("Render colour"),
             layout: Some(&render_pipeline_colour_layout),
             vertex: VertexState {
                 module: &shader2,
@@ -412,6 +379,15 @@ impl Renderer {
             cache: None,
         });
 
+        let compute_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("Automota"),
+            layout: Some(&render_pipeline_layout),
+            module: &shader,
+            entry_point: None,
+            compilation_options: Default::default(),
+            cache: None,
+        });
+
         return Renderer {
             surface,
             device,
@@ -428,31 +404,66 @@ impl Renderer {
             num_verticies: VERTICES.len() as u32,
             diffuse_bind_group,
             diffuse_texture,
+            compute_texture,
             is_surface_configured: false,
             camera,
             camera_controller,
-            camera_uniform,
             camera_bind_group,
             camera_uniform_buffer,
 
-            camera2_uniform,
-            camera2_uniform_buffer
+            compute_pipeline,
         };
     }
 
     pub fn update(&mut self) {
         self.camera_controller.update_camera(&mut self.camera);
-        self.camera_uniform.update_project(&self.camera);
         self.queue.write_buffer(
             &self.camera_uniform_buffer,
             0,
-            bytemuck::cast_slice(&[self.camera_uniform]),
+            bytemuck::cast_slice(&[self.camera]),
         );
-        self.queue.write_buffer(
-            &self.camera2_uniform_buffer,
-            0,
-            bytemuck::cast_slice(&[self.camera2_uniform]),
+    }
+
+    pub fn run_compute(&mut self) {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("Compute"),
+            });
+
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("Compute pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            compute_pass.set_pipeline(&self.compute_pipeline);
+
+            compute_pass.dispatch_workgroups(16, 16, 1);
+        }
+
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfoBase {
+                texture: &self.compute_texture.texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfoBase {
+                texture: &self.diffuse_texture.texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            Extent3d {
+                width: 16,
+                height: 16,
+                depth_or_array_layers: 1,
+            },
         );
+
+        self.queue.submit(std::iter::once(encoder.finish()));
     }
 
     pub fn render(&mut self) -> Result<(), SurfaceError> {
@@ -552,34 +563,7 @@ impl Renderer {
                     return true;
                 }
                 (KeyCode::KeyR, true) => {
-                    self.camera2_uniform.scale += 0.1;
-                    println!("{}", self.camera2_uniform.scale);
-                    self.window.request_redraw();
-                    return true;
-                }
-                (KeyCode::KeyT, true) => {
-                    self.camera2_uniform.scale -= 0.1;
-                    self.window.request_redraw();
-                    return true;
-                }
-                (KeyCode::KeyW, true) => {
-                    self.camera2_uniform.y -= 0.1 / self.camera2_uniform.scale;
-                    self.window.request_redraw();
-                    return true;
-                }
-                (KeyCode::KeyA, true) => {
-                    self.camera2_uniform.x += 0.1 / self.camera2_uniform.scale;
-                    self.window.request_redraw();
-                    return true;
-                }
-                (KeyCode::KeyS, true) => {
-                    self.camera2_uniform.y += 0.1 / self.camera2_uniform.scale;
-                    println!("{}", self.camera2_uniform.scale);
-                    self.window.request_redraw();
-                    return true;
-                }
-                (KeyCode::KeyD, true) => {
-                    self.camera2_uniform.x -= 0.1 / self.camera2_uniform.scale;
+                    self.run_compute();
                     self.window.request_redraw();
                     return true;
                 }
