@@ -49,13 +49,39 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 @compute
-@workgroup_size(16, 16, 1)
+@workgroup_size(1, 1, 1)
 fn cm_main(
     @builtin(global_invocation_id) global_invocation_id: vec3<u32>
 ) {
     let x = global_invocation_id.x;
     let y = global_invocation_id.y;
 
-    var color = textureLoad(t_diffuse, vec2<i32>(i32(x) - 1, i32(y)), 0);
-    textureStore(t_output, vec2<i32>(i32(x), i32(y)), color / 1.01f);
+    var count = 0;
+
+    for (var i: i32 = -1; i <= 1; i++) {
+        for (var j: i32 = -1; j <= 1; j++) {
+            if i == 0 && j == 0 {
+                continue;
+            }
+            var color = textureLoad(t_diffuse, vec2<i32>(i32(x) + i, i32(y) + j), 0);
+            if color.x > 0.0f {
+                count += 1;
+            }
+        }
+    }
+
+
+    var color = textureLoad(t_diffuse, vec2<i32>(i32(x), i32(y)), 0);
+
+    if count == 3 {
+        color.x = 1.0f;
+        color.y = 1.0f;
+        color.z = 1.0f;
+    } else if count < 2 || count > 3 {
+        color.x = 0.0f;
+        color.y = 0.0f;
+        color.z = 0.0f;
+    }
+
+    textureStore(t_output, vec2<i32>(i32(x), i32(y)), color);
 }

@@ -25,7 +25,6 @@ pub struct Renderer {
 
     pub position: PhysicalPosition<f64>,
     render_pipeline: RenderPipeline,
-    render_pipeline_colour: RenderPipeline,
 
     pub render_state: RenderState,
 
@@ -34,11 +33,11 @@ pub struct Renderer {
 
     num_verticies: u32,
     index_buffer: wgpu::Buffer,
-    camera_bind_group: wgpu::BindGroup,
-    diffuse_bind_group: wgpu::BindGroup,
-    diffuse_texture: Texture,
-
     camera: Camera,
+    camera_bind_group: wgpu::BindGroup,
+
+    texture_bind_group: wgpu::BindGroup,
+    presentation_texture: Texture,
 
     is_surface_configured: bool,
     camera_controller: CameraController,
@@ -172,7 +171,7 @@ impl Renderer {
 
         let camera_controller = CameraController::new(0.1);
 
-        let diffuse_bytes = include_bytes!("Untitled.png");
+        let diffuse_bytes = include_bytes!("Untitled2.png");
         let diffuse_texture =
             Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
 
@@ -263,12 +262,7 @@ impl Renderer {
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
-        });
-
-        let shader2 = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("shader2"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader2.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("automata/gol.wgsl").into()),
         });
 
         let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -334,50 +328,6 @@ impl Renderer {
             cache: None,
         });
 
-        let render_pipeline_colour_layout =
-            device.create_pipeline_layout(&PipelineLayoutDescriptor {
-                label: Some("Pipeline layout"),
-                bind_group_layouts: &[],
-                push_constant_ranges: &[],
-            });
-
-        let render_pipeline_colour = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some("Render colour"),
-            layout: Some(&render_pipeline_colour_layout),
-            vertex: VertexState {
-                module: &shader2,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            fragment: Some(FragmentState {
-                module: &shader2,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(ColorTargetState {
-                    format: surface_format,
-                    blend: Some(BlendState::REPLACE),
-                    write_mask: ColorWrites::ALL,
-                })],
-            }),
-            primitive: PrimitiveState {
-                topology: PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                unclipped_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
-        });
 
         let compute_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
             label: Some("Automota"),
@@ -396,14 +346,13 @@ impl Renderer {
             size,
             window,
             render_pipeline,
-            render_pipeline_colour,
             render_state: RenderState::Default,
             vertex_buffer,
             index_buffer,
             position: PhysicalPosition::new(0.0, 0.0),
             num_verticies: VERTICES.len() as u32,
-            diffuse_bind_group,
-            diffuse_texture,
+            texture_bind_group: diffuse_bind_group,
+            presentation_texture: diffuse_texture,
             compute_texture,
             is_surface_configured: false,
             camera,
@@ -436,11 +385,11 @@ impl Renderer {
                 label: Some("Compute pass"),
                 timestamp_writes: None,
             });
-            compute_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
+            compute_pass.set_bind_group(0, &self.texture_bind_group, &[]);
             compute_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             compute_pass.set_pipeline(&self.compute_pipeline);
 
-            compute_pass.dispatch_workgroups(16, 16, 1);
+            compute_pass.dispatch_workgroups(self.presentation_texture.size.width, self.presentation_texture.size.height, 1);
         }
 
         encoder.copy_texture_to_texture(
@@ -451,14 +400,14 @@ impl Renderer {
                 aspect: wgpu::TextureAspect::All,
             },
             wgpu::TexelCopyTextureInfoBase {
-                texture: &self.diffuse_texture.texture,
+                texture: &self.presentation_texture.texture,
                 mip_level: 0,
                 origin: Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             Extent3d {
-                width: 16,
-                height: 16,
+                width: self.presentation_texture.size.width,
+                height: self.presentation_texture.size.height,
                 depth_or_array_layers: 1,
             },
         );
@@ -505,7 +454,7 @@ impl Renderer {
 
             match self.render_state {
                 RenderState::Default => {
-                    render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
+                    render_pass.set_bind_group(0, &self.texture_bind_group, &[]);
                     render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
                     render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                     render_pass
@@ -515,8 +464,6 @@ impl Renderer {
                     render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
                 }
                 RenderState::ColourPass => {
-                    render_pass.set_pipeline(&self.render_pipeline_colour);
-                    render_pass.draw(0..3, 0..1);
                 }
                 RenderState::ComplexObject => {}
             }
