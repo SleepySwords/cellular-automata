@@ -1,5 +1,4 @@
 pub mod camera;
-pub mod object;
 mod renderer;
 pub mod texture;
 pub mod vertex;
@@ -7,11 +6,11 @@ pub mod vertex;
 use std::{error::Error, sync::Arc};
 
 use log::info;
-use renderer::Renderer;
+use renderer::State;
 use wgpu::SurfaceError;
 use winit::{
     application::ApplicationHandler,
-    event::{Event, KeyEvent, WindowEvent},
+    event::{ElementState, Event, KeyEvent, MouseScrollDelta, TouchPhase, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
     window::Window,
@@ -32,7 +31,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 struct App {
-    state: Option<Renderer>,
+    state: Option<State>,
 }
 
 impl App {
@@ -46,7 +45,7 @@ impl ApplicationHandler<App> for App {
         let window_attributes = Window::default_attributes();
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
-        self.state = Some(pollster::block_on(Renderer::new(window)));
+        self.state = Some(pollster::block_on(State::new(window)));
     }
 
     fn window_event(

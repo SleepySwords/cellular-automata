@@ -1,11 +1,20 @@
-use std::sync::Arc;
+use std::{sync::Arc};
 
 use wgpu::{
-    Backends, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BlendState, BufferUsages, ColorTargetState, ColorWrites, ComputePassDescriptor, ComputePipelineDescriptor, Device, DeviceDescriptor, ExperimentalFeatures, Extent3d, Features, FragmentState, Instance, Limits, MemoryHints, MultisampleState, Operations, Origin3d, PipelineLayoutDescriptor, PowerPreference, PrimitiveState, PrimitiveTopology, Queue, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptions, ShaderStages, Surface, SurfaceConfiguration, SurfaceError, TextureUsages, TextureViewDescriptor, TextureViewDimension, VertexState, util::{BufferInitDescriptor, DeviceExt}, wgt::CommandEncoderDescriptor
+    util::{BufferInitDescriptor, DeviceExt},
+    wgt::CommandEncoderDescriptor,
+    Backends, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
+    BlendState, BufferUsages, ColorTargetState, ColorWrites, ComputePassDescriptor,
+    ComputePipelineDescriptor, Device, DeviceDescriptor, ExperimentalFeatures, Extent3d, Features,
+    FragmentState, Instance, Limits, MemoryHints, MultisampleState, Operations, Origin3d,
+    PipelineLayoutDescriptor, PowerPreference, PrimitiveState, PrimitiveTopology, Queue,
+    RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor,
+    RequestAdapterOptions, ShaderStages, Surface, SurfaceConfiguration, SurfaceError,
+    TextureUsages, TextureViewDescriptor, TextureViewDimension, VertexState,
 };
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
-    event::{KeyEvent, WindowEvent},
+    event::{KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
     keyboard::{KeyCode, PhysicalKey},
     window::Window,
 };
@@ -16,7 +25,7 @@ use crate::{
     vertex::Vertex,
 };
 
-pub struct Renderer {
+pub struct State {
     surface: Surface<'static>,
     device: Device,
     queue: Queue,
@@ -33,17 +42,19 @@ pub struct Renderer {
 
     num_verticies: u32,
     index_buffer: wgpu::Buffer,
-    camera: Camera,
+    pub camera: Camera,
     camera_bind_group: wgpu::BindGroup,
 
     texture_bind_group: wgpu::BindGroup,
     presentation_texture: Texture,
 
     is_surface_configured: bool,
-    camera_controller: CameraController,
+    pub camera_controller: CameraController,
     camera_uniform_buffer: wgpu::Buffer,
     compute_pipeline: wgpu::ComputePipeline,
     compute_texture: Texture,
+    is_mouse_pressed: bool,
+    texture_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 pub enum RenderState {
@@ -82,37 +93,12 @@ const VERTICES: &[Vertex] = &[
         color: [0.0, 0.0, 0.0],
         tex_coords: [1.0, 0.0],
     },
-    // Vertex {
-    //     position: [-0.0868241, 0.49240386, 0.0],
-    //     color: [0.0, 0.0, 0.0],
-    //     tex_coords: [0.4131759, 0.99240386],
-    // }, // A
-    // Vertex {
-    //     position: [-0.49513406, 0.06958647, 0.0],
-    //     color: [0.5, 0.0, 0.5],
-    //     tex_coords: [0.0048659444, 0.56958647],
-    // }, // B
-    // Vertex {
-    //     position: [-0.21918549, -0.44939706, 0.0],
-    //     color: [0.5, 0.0, 0.5],
-    //     tex_coords: [0.28081453, 0.05060294],
-    // }, // C
-    // Vertex {
-    //     position: [0.35966998, -0.3473291, 0.0],
-    //     color: [1.0, 1.0, 0.5],
-    //     tex_coords: [0.85967, 0.1526709],
-    // }, // D
-    // Vertex {
-    //     position: [0.44147372, 0.2347359, 0.0],
-    //     color: [0.5, 0.0, 0.5],
-    //     tex_coords: [0.9414737, 0.7347359],
-    // }, // E
 ];
 
 const INDICES: &[u32] = &[0, 2, 1, 3, 1, 2];
 
-impl Renderer {
-    pub async fn new<'a>(window: Arc<Window>) -> Renderer {
+impl State {
+    pub async fn new<'a>(window: Arc<Window>) -> State {
         let size = window.inner_size();
 
         let instance = Instance::new(&wgpu::InstanceDescriptor {
@@ -171,12 +157,12 @@ impl Renderer {
 
         let camera_controller = CameraController::new(0.1);
 
-        let diffuse_bytes = include_bytes!("Untitled2.png");
-        let diffuse_texture =
-            Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
+        let diffuse_bytes = include_bytes!("ok.png");
+        let presentation_texture =
+            Texture::from_bytes(&device, &queue, diffuse_bytes, "Presentation texture").unwrap();
 
         let compute_texture =
-            Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
+            Texture::from_bytes(&device, &queue, diffuse_bytes, "Compute texture").unwrap();
 
         let texture_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -211,17 +197,17 @@ impl Renderer {
                 ],
             });
 
-        let diffuse_bind_group = device.create_bind_group(&BindGroupDescriptor {
+        let texture_bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: None,
             layout: &texture_bind_group_layout,
             entries: &[
                 BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                    resource: wgpu::BindingResource::TextureView(&presentation_texture.view),
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                    resource: wgpu::BindingResource::Sampler(&presentation_texture.sampler),
                 },
                 BindGroupEntry {
                     binding: 2,
@@ -328,7 +314,6 @@ impl Renderer {
             cache: None,
         });
 
-
         let compute_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
             label: Some("Automota"),
             layout: Some(&render_pipeline_layout),
@@ -338,7 +323,7 @@ impl Renderer {
             cache: None,
         });
 
-        return Renderer {
+        return State {
             surface,
             device,
             queue,
@@ -351,8 +336,9 @@ impl Renderer {
             index_buffer,
             position: PhysicalPosition::new(0.0, 0.0),
             num_verticies: VERTICES.len() as u32,
-            texture_bind_group: diffuse_bind_group,
-            presentation_texture: diffuse_texture,
+            texture_bind_group,
+            texture_bind_group_layout,
+            presentation_texture,
             compute_texture,
             is_surface_configured: false,
             camera,
@@ -361,6 +347,7 @@ impl Renderer {
             camera_uniform_buffer,
 
             compute_pipeline,
+            is_mouse_pressed: false,
         };
     }
 
@@ -389,7 +376,11 @@ impl Renderer {
             compute_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             compute_pass.set_pipeline(&self.compute_pipeline);
 
-            compute_pass.dispatch_workgroups(self.presentation_texture.size.width, self.presentation_texture.size.height, 1);
+            compute_pass.dispatch_workgroups(
+                self.presentation_texture.size.width,
+                self.presentation_texture.size.height,
+                1,
+            );
         }
 
         encoder.copy_texture_to_texture(
@@ -463,8 +454,7 @@ impl Renderer {
                     // render_pass.draw(0..self.num_verticies, 0..1);
                     render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
                 }
-                RenderState::ColourPass => {
-                }
+                RenderState::ColourPass => {}
                 RenderState::ComplexObject => {}
             }
         }
@@ -491,8 +481,65 @@ impl Renderer {
 
     pub fn input(&mut self, window_event: &WindowEvent) -> bool {
         match window_event {
+            // TODO: move all this logic to the camera controller
             WindowEvent::CursorMoved { position, .. } => {
+                if self.is_mouse_pressed {
+                    let delta_x = (position.x - self.position.x) as f32;
+                    let delta_y = (position.y - self.position.y) as f32;
+
+                    // Add notes here
+                    self.camera.x += (delta_x / self.size.width as f32) * 2.0 / self.camera.scale;
+                    self.camera.y -= (delta_y / self.size.height as f32) * 2.0 / self.camera.scale;
+                }
                 self.position = *position;
+                return true;
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                if *button == MouseButton::Left {
+                    self.is_mouse_pressed = state.is_pressed();
+                }
+                return true;
+            }
+            WindowEvent::MouseWheel { delta, .. } => match delta {
+                MouseScrollDelta::LineDelta(_, _) => todo!(),
+                MouseScrollDelta::PixelDelta(physical_position) => {
+                    self.camera.scale += (physical_position.y as f32) / 1000.0;
+                    return true;
+                }
+            },
+            WindowEvent::DroppedFile(path) => {
+                let bytes = std::fs::read(path).unwrap();
+
+                let new_presentation_texture =
+                    Texture::from_bytes(&self.device, &self.queue, &bytes, "Presentation Texture").unwrap();
+                let new_compute_texture =
+                    Texture::from_bytes(&self.device, &self.queue, &bytes, "Compute Texture").unwrap();
+
+                let texture_bind_group = self.device.create_bind_group(&BindGroupDescriptor {
+                    label: None,
+                    layout: &self.texture_bind_group_layout,
+                    entries: &[
+                        BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(
+                                &new_presentation_texture.view,
+                            ),
+                        },
+                        BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&new_presentation_texture.sampler),
+                        },
+                        BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(&new_compute_texture.view),
+                        },
+                    ],
+                });
+
+                self.texture_bind_group = texture_bind_group;
+                self.compute_texture = new_compute_texture;
+                self.presentation_texture = new_presentation_texture;
+
                 return true;
             }
             WindowEvent::KeyboardInput {

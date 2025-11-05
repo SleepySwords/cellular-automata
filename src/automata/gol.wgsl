@@ -64,7 +64,7 @@ fn cm_main(
                 continue;
             }
             var color = textureLoad(t_diffuse, vec2<i32>(i32(x) + i, i32(y) + j), 0);
-            if color.x > 0.0f {
+            if color.x > 0.5f {
                 count += 1;
             }
         }
