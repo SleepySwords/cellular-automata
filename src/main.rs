@@ -23,9 +23,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     info!("ok");
 
     let event_loop = EventLoop::with_user_event().build()?;
-    // event_loop.set_control_flow(ControlFlow::Wait);
+    event_loop.set_control_flow(ControlFlow::Poll);
 
-    event_loop.run_app(&mut App::new());
+    let _ = event_loop.run_app(&mut App::new());
 
     return Ok(());
 }
@@ -46,6 +46,15 @@ impl ApplicationHandler<App> for App {
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
         self.state = Some(pollster::block_on(State::new(window)));
+    }
+
+    fn about_to_wait(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        let state = match &mut self.state {
+            Some(canvas) => canvas,
+            None => return,
+        };
+
+        // state.window.request_redraw();
     }
 
     fn window_event(

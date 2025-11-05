@@ -37,7 +37,7 @@ pub struct State {
 
     pub render_state: RenderState,
 
-    window: Arc<Window>,
+    pub window: Arc<Window>,
     vertex_buffer: wgpu::Buffer,
 
     num_verticies: u32,
@@ -553,12 +553,10 @@ impl State {
             } => match (code, key_state.is_pressed()) {
                 (KeyCode::Space, true) => {
                     self.render_state = self.render_state.next();
-                    self.window.request_redraw();
                     return true;
                 }
                 (KeyCode::KeyR, true) => {
                     self.run_compute();
-                    self.window.request_redraw();
                     return true;
                 }
                 (x, y) => self.camera_controller.handle_key(*x, y),
