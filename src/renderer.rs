@@ -55,6 +55,8 @@ pub struct State {
     compute_texture: Texture,
     is_mouse_pressed: bool,
     texture_bind_group_layout: wgpu::BindGroupLayout,
+
+    pub run: bool,
 }
 
 pub enum RenderState {
@@ -149,14 +151,6 @@ impl State {
             view_formats: vec![],
         };
 
-        let camera = Camera {
-            scale: 1.0,
-            x: 0.0,
-            y: 0.0,
-        };
-
-        let camera_controller = CameraController::new(0.1);
-
         let diffuse_bytes = include_bytes!("ok.png");
         let presentation_texture =
             Texture::from_bytes(&device, &queue, diffuse_bytes, "Presentation texture").unwrap();
@@ -216,11 +210,25 @@ impl State {
             ],
         });
 
+        let camera = Camera {
+            scale: 1.0,
+            x: 0.0,
+            y: 0.0,
+            window_width: size.width as f32,
+            window_height: size.height as f32,
+            texture_width: compute_texture.size.width as f32,
+            texture_height: compute_texture.size.height as f32,
+        };
+
+        let camera_controller = CameraController::new(0.1);
+
         let camera_uniform_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: None,
             contents: bytemuck::cast_slice(&[camera]),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         });
+
+        println!("{:?}", camera);
 
         let camera_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -348,6 +356,8 @@ impl State {
 
             compute_pipeline,
             is_mouse_pressed: false,
+
+            run: false,
         };
     }
 
@@ -471,6 +481,8 @@ impl State {
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
+            self.camera.window_width = new_size.width as f32;
+            self.camera.window_height = new_size.height as f32;
         }
         self.is_surface_configured = true;
     }
@@ -555,8 +567,12 @@ impl State {
                     self.render_state = self.render_state.next();
                     return true;
                 }
-                (KeyCode::KeyR, true) => {
+                (KeyCode::KeyS, true) => {
                     self.run_compute();
+                    return true;
+                }
+                (KeyCode::KeyR, true) => {
+                    self.run = !self.run;
                     return true;
                 }
                 (x, y) => self.camera_controller.handle_key(*x, y),

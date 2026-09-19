@@ -5,7 +5,11 @@ use winit::keyboard::KeyCode;
 pub struct Camera {
     pub scale: f32,
     pub x: f32,
-    pub y: f32
+    pub y: f32,
+    pub window_width: f32,
+    pub window_height: f32,
+    pub texture_width: f32,
+    pub texture_height: f32,
 }
 
 pub struct CameraController {

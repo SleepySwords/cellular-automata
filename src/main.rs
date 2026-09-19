@@ -54,7 +54,10 @@ impl ApplicationHandler<App> for App {
             None => return,
         };
 
-        // state.window.request_redraw();
+        if state.run {
+            state.run_compute();;
+            state.window.request_redraw();
+        }
     }
 
     fn window_event(
@@ -97,6 +100,9 @@ impl ApplicationHandler<App> for App {
                 _ => {}
             }
         } else {
+            if state.run {
+                state.run_compute();
+            }
             state.window().request_redraw();
         }
     }

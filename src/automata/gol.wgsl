@@ -14,7 +14,11 @@ struct VertexInput {
 struct Camera {
     scale: f32,
     x: f32,
-    y: f32
+    y: f32,
+    window_width: f32,
+    window_height: f32,
+    texture_width: f32,
+    texture_height: f32,
 }
 
 @group(1) @binding(0)
@@ -26,7 +30,10 @@ fn vs_main(
     model: VertexInput,
 ) -> VertexOutput {
     var out: VertexOutput;
-    out.clip_position = /* camera.view_proj * */ vec4((model.vert_pos.xy + vec2(camera.x, camera.y)) * camera.scale, model.vert_pos.z, 1.0);
+    var textureSize: vec2<f32> = vec2<f32>(camera.texture_width, camera.texture_height);
+    var windowSize: vec2<f32> = vec2<f32>(camera.window_width, camera.window_height);
+    var scale = camera.scale;
+    out.clip_position = vec4((model.vert_pos.xy + vec2(camera.x, camera.y)) * scale * (textureSize / windowSize), model.vert_pos.z, 1.0);
     out.tex_coords = model.tex_coords;
     out.vert_pos = model.vert_pos.xyz;
     out.colour = model.colour;
